@@ -1,0 +1,117 @@
+# ============================================
+# Mesh -> Shape -> Solid Macro
+# For: selected Mesh (e.g., STL import)
+# Tested for FreeCAD 1.0.x
+# ============================================
+TOLERANCE = 0.1  # Tolerance for makeShapeFromMesh (adjust if necessary)
+
+def log(msg):
+    App.Console.PrintMessage(msg + "\n")
+
+def log_err(msg):
+    App.Console.PrintError(msg + "\n")
+
+def mesh_to_solid():
+    doc = App.ActiveDocument
+    if doc is None:
+        log_err("No document opened.")
+        return
+
+    sel = Gui.Selection.getSelection()
+    if len(sel) != 1:
+        log_err("Please SELECT EXACTLY ONE Object (Mesh).")
+        return
+
+    obj = sel[0]
+
+    # Check if it's actually a Mesh object
+    if not hasattr(obj, "Mesh"):
+        log_err(f"Selected object '{obj.Label}' has no '.Mesh' attribute.")
+        log_err("It's likely not a Mesh object. STL may need to be loaded with 'File -> Import'.")
+        return
+
+    mesh = obj.Mesh
+    try:
+        topo = mesh.Topology
+    except Exception as e:
+        log_err(f"Couldn't read Mesh.Topology: {e}")
+        return
+
+    log(f"Create Shape from Mesh '{obj.Label}' with tolerance {TOLERANCE} ...")
+
+    shape = Part.Shape()
+    try:
+        shape.makeShapeFromMesh(topo, TOLERANCE)
+    except Exception as e:
+        log_err(f"makeShapeFromMesh failed: {e}")
+        return
+
+    if shape.isNull():
+        log_err("Created Shape is NULL. The Mesh is likely faulty or not closed.")
+        log_err("Tip: In the Mesh Design WB 'Analyze -> Evaluate & repair mesh' execute.")
+        return
+
+    shells = shape.Shells
+    if not shells:
+        log_err("No Shells found in the created Shape. No Solid possible.")
+        return
+
+    log(f"Found Shells: {len(shells)} – create Solids ...")
+
+    solids = []
+    for i, sh in enumerate(shells):
+        try:
+            s = Part.makeSolid(sh)
+            if not s.isNull():
+                solids.append(s)
+                log(f"  Shell {i} -> Solid OK")
+            else:
+                log_err(f"  Shell {i} -> Solid is NULL")
+        except Exception as e:
+            log_err(f"  Shell {i} -> Error in makeSolid: {e}")
+
+    if not solids:
+        log_err("Couldn't create a Solid from any Shell. The Mesh is likely not closed.")
+        return
+
+    # If multiple Solids: merge them
+    solid = solids[0]
+    if len(solids) > 1:
+        log("Merge multiple Solids with multiFuse ...")
+        try:
+            solid = solid.multiFuse(solids[1:])
+        except Exception as e:
+            log_err(f"multiFuse failed: {e}")
+            log_err("Only the first Solid will be used.")
+
+    # Remove unnecessary edges (optional)
+    try:
+        solid = solid.removeSplitter()
+        log("removeSplitter executed (unnecessary edges removed).")
+    except Exception as e:
+        log_err(f"removeSplitter failed (not critical): {e}")
+
+    # Create a new object in the document
+    new_name = obj.Name + "_Solid"
+    new_label = obj.Label + " (Solid)"
+
+    solid_obj = doc.addObject("Part::Feature", new_name)
+    solid_obj.Shape = solid
+    solid_obj.Label = new_label
+
+    # Optionally: Hide original Mesh
+    try:
+        obj.ViewObject.Visibility = False
+    except Exception:
+        pass
+
+    doc.recompute()
+    try:
+        Gui.ActiveDocument.ActiveView.fitAll()
+    except Exception:
+        pass
+
+    log(f"COMPLETE: Created Solid: '{solid_obj.Label}'")
+
+if __name__ == "__main__":
+    mesh_to_solid()
