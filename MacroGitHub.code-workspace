@@ -1,0 +1,16 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "files.associations": {
+            "*.FCMacro": "python"
+        },
+        "python.analysis.extraPaths": [
+            "${workspaceFolder}/.vscode/freecadlink/linux",
+            "${workspaceFolder}/.vscode/freecadlink/win"
+        ]
+    }
+}
