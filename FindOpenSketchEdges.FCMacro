@@ -1,0 +1,85 @@
+# ------------------------------------------------------------
+# FreeCAD Macro: Find open edges in a Sketch
+#
+# This macro analyzes the selected Sketch and detects
+# open wire endpoints that prevent operations like Pad.
+#
+# It prints:
+# - Total number of edges
+# - Number of open endpoints
+# - Which edge and which endpoint (START / END) is open
+# - The exact 3D coordinates of the open endpoints
+#
+# Usage:
+# 1. Select a Sketch in the Tree view
+# 2. Run this macro
+# ------------------------------------------------------------
+
+import FreeCAD as App
+import Part
+
+# Get the currently selected object
+selection = App.Gui.Selection.getSelection()
+if not selection:
+    raise RuntimeError("No object selected. Please select a Sketch.")
+
+sketch = selection[0]
+
+# Ensure the selected object has a Shape
+if not hasattr(sketch, "Shape"):
+    raise RuntimeError("Selected object has no Shape. Please select a Sketch.")
+
+shape = sketch.Shape.copy()
+
+# Collect all edge endpoints
+points = []
+point_info = []  # Stores (edgeIndex, isStartPoint)
+
+for edge_index, edge in enumerate(shape.Edges):
+    start_point = edge.Vertexes[0].Point
+    end_point = edge.Vertexes[-1].Point
+
+    points.append(start_point)
+    point_info.append((edge_index, True))   # True = START point
+
+    points.append(end_point)
+    point_info.append((edge_index, False))  # False = END point
+
+# Cluster points that are geometrically identical (within tolerance)
+tolerance = 1e-6  # Increase to 1e-5 if nothing is detected
+clusters = []
+
+for i, p in enumerate(points):
+    matched = False
+    for cluster in clusters:
+        if (p - cluster["point"]).Length <= tolerance:
+            cluster["indices"].append(i)
+            matched = True
+            break
+    if not matched:
+        clusters.append({
+            "point": p,
+            "indices": [i]
+        })
+
+# Open endpoints are clusters that appear only once
+open_clusters = [c for c in clusters if len(c["indices"]) == 1]
+
+# Print results
+print("--------------------------------------------------")
+print(f"Sketch: {sketch.Name}")
+print(f"Total edges: {len(shape.Edges)}")
+print(f"Open endpoint clusters: {len(open_clusters)}")
+print("--------------------------------------------------")
+
+for cluster in open_clusters:
+    idx = cluster["indices"][0]
+    edge_index, is_start = point_info[idx]
+    point = cluster["point"]
+
+    location = "START" if is_start else "END"
+    print(f"- Edge #{edge_index} {location} at Vector ({point.x}, {point.y}, {point.z})")
+
+print("--------------------------------------------------")
+print("If exactly 2 open endpoints are reported,")
+print("they usually belong together and need a Coincident constraint.")
